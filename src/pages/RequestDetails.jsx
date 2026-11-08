@@ -50,9 +50,6 @@ const RequestDetails = () => {
   const [isRestricted, setIsRestricted] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [orReason, setOrReason] = useState('');
-  const [approvalAllowed, setApprovalAllowed] = useState(false);
-  const [approvalBlockedBy, setApprovalBlockedBy] = useState(null);
-  const [approvalCheckFailed, setApprovalCheckFailed] = useState(false);
   
   // 🆕 State to track if approved has been clicked
   const [isApprovedOrProcessing, setIsApprovedOrProcessing] = useState(false);
@@ -61,11 +58,6 @@ const RequestDetails = () => {
   const [toast, setToast] = useState({ show: false, message: '', type: '' });
 
   const API_BASE_URL = import.meta.env.VITE_API_URL;
-
-  const RESTRICTED_DOCUMENTS = [
-    'Transcript of Records (TOR)', 'Diploma', 'CAV', 'Authentication',
-    'Transfer Credential', 'Honorable Dismissal', 'Form 137', 'Certificate of Graduation'
-  ];
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -97,9 +89,6 @@ const RequestDetails = () => {
   useEffect(() => {
     const fetchRequest = async () => {
       setLoading(true);
-      setApprovalAllowed(false);
-      setApprovalBlockedBy(null);
-      setApprovalCheckFailed(false);
       try {
         const token = localStorage.getItem('authToken');
         if (!token) {
@@ -119,29 +108,12 @@ const RequestDetails = () => {
         setStatus(data.status);
         fetchOrSubmissionHistory(data.uuid);
 
-        if (data.status === 'pending') {
-          try {
-            const transitionsResponse = await fetch(`${API_BASE_URL}/requests/${data.uuid}/transitions`, {
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-            });
-            const transitionsData = await transitionsResponse.json();
-            if (!transitionsResponse.ok) throw new Error(transitionsData.message || 'Unable to verify approval order');
-            setApprovalAllowed(transitionsData.approvalAllowed === true);
-            setApprovalBlockedBy(transitionsData.approvalBlockedBy || null);
-          } catch (transitionsError) {
-            setApprovalAllowed(false);
-            setApprovalCheckFailed(true);
-          }
-        } else {
-          setApprovalAllowed(true);
-        }
-        
         // 🆕 Check if status is approved, processing, ready, claimed, or rejected
         const approvedOrProcessing = ['approved', 'processing', 'ready', 'claimed'].includes(data.status);
         setIsApprovedOrProcessing(approvedOrProcessing);
         
-        const restricted = data.studentType === 'Student' && 
-                          RESTRICTED_DOCUMENTS.some(doc => data.documentType.includes(doc));
+        const role = data.studentType?.toLowerCase();
+        const restricted = data.requestAvailable !== true || !data.allowedRoles?.some(allowedRole => allowedRole.toLowerCase() === role);
         setIsRestricted(restricted);
 
       } catch (err) {
@@ -431,8 +403,6 @@ const RequestDetails = () => {
         </div>
 
         {/* Restricted Warning */}
-    {/*
-  // Restricted Warning
   {isRestricted && (
     <div className="mb-6 bg-red-50 border-l-4 border-red-500 rounded-r-xl p-4">
       <div className="flex items-start gap-3">
@@ -443,8 +413,7 @@ const RequestDetails = () => {
           </p>
           <p className="text-sm text-red-700 mt-1">
             <strong>{request.documentType}</strong> is not available for{" "}
-            <strong>{request.studentType}</strong>. Only Alumni can request
-            this document.
+            <strong>{request.studentType}</strong> under the current request catalog.
           </p>
           <button
             onClick={handleRejectClick}
@@ -457,7 +426,6 @@ const RequestDetails = () => {
       </div>
     </div>
   )}
-*/}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -544,7 +512,7 @@ const RequestDetails = () => {
                     <textarea value={orReason} onChange={event => setOrReason(event.target.value)} placeholder="Reason for requesting a corrected OR" rows="3" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                     <button onClick={() => reviewOfficialReceipt('reject')} disabled={updating || !orReason.trim()} className="w-full rounded-lg bg-red-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Reject OR</button>
                   </>}
-                  {status === 'or_confirmed' && <p className="rounded-lg bg-green-50 p-3 text-sm font-medium text-green-800">OR confirmed. This request is eligible to start processing when it is next in FIFO order.</p>}
+                  {status === 'or_confirmed' && <p className="rounded-lg bg-green-50 p-3 text-sm font-medium text-green-800">OR confirmed. This request can now start processing.</p>}
 
                   <div className="border-t border-gray-100 pt-4">
                     <h3 className="mb-3 text-sm font-semibold text-gray-800">Submission history</h3>
@@ -576,6 +544,7 @@ const RequestDetails = () => {
                                 <span className={`rounded px-2 py-0.5 text-xs font-medium ${submission.decision === 'rejected' ? 'bg-red-100 text-red-800' : submission.decision === 'confirmed' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>{reviewLabel}</span>
                               </div>
                               <p className="mt-1 text-xs text-gray-500">OR {submission.or_number} · Submitted {submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : '—'}</p>
+                              <p className="mt-1 text-xs text-gray-600">Processed by {submission.administrator || 'Awaiting administrator processing'}</p>
                               {submission.rejection_reason && <p className="mt-1 break-words text-xs text-red-700">Reason: {submission.rejection_reason}</p>}
                             </div>
                           </div>
@@ -601,19 +570,15 @@ const RequestDetails = () => {
                         step={1} 
                         color="blue" 
                         label="Approve Request" 
-                        desc={approvalCheckFailed
-                          ? 'Unable to verify approval order. Refresh and try again.'
-                          : approvalBlockedBy
-                            ? `Approve Queue #${approvalBlockedBy.queue_number} first`
-                            : 'Approve and request an Official Receipt'}
-                        disabled={status !== 'pending' || updating || !approvalAllowed} 
+                        desc="Approve and request an Official Receipt"
+                        disabled={status !== 'pending' || updating} 
                         onClick={() => handleStatusChange('approved')} 
                       />
                       <ActionButton
                         step={2}
                         color="blue"
                         label="Start Processing"
-                        desc="Process the confirmed OR in FIFO order"
+                        desc="Process the confirmed OR"
                         disabled={status !== 'or_confirmed' || updating}
                         onClick={() => updateStatus('processing').catch(error => showToast(error.message, 'error'))}
                       />

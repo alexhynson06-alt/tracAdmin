@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { adminSupabase, clearAdminSessionCache } from '../services/adminAuth';
 
 const Login = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [notice, setNotice] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -15,59 +20,100 @@ const Login = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setNotice('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password })
+      if (!adminSupabase) {
+        throw new Error('Admin Supabase Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+      }
+
+      if (authMode === 'request-reset') {
+        const { error: resetError } = await adminSupabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/login?flow=recovery`
+        });
+        if (resetError) throw resetError;
+        setNotice('If that account exists, a password recovery link has been sent.');
+        return;
+      }
+
+      if (authMode === 'set-password') {
+        if (newPassword.length < 8) throw new Error('Password must be at least 8 characters.');
+        if (newPassword !== confirmPassword) throw new Error('Passwords do not match.');
+
+        const { error: passwordError } = await adminSupabase.auth.updateUser({ password: newPassword });
+        if (passwordError) throw passwordError;
+        setPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setAuthMode('login');
+        setNotice('Password updated. Sign in with your new password.');
+        await adminSupabase.auth.signOut();
+        clearAdminSessionCache();
+        return;
+      }
+
+      const { data: sessionData, error: signInError } = await adminSupabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      });
+
+      if (signInError) throw signInError;
+
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Supabase did not return an authenticated session');
+
+      const response = await fetch(`${API_BASE_URL}/admin/me`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       const data = await response.json();
 
       if (!response.ok) {
+        await adminSupabase.auth.signOut();
+        clearAdminSessionCache();
         throw new Error(data.message || 'Login failed');
       }
 
-      // ✅ I-extract ang user data (may department na ito)
       const userData = {
-        id: data.user?.id || data.admin?.id,
-        username: data.user?.username || data.admin?.username,
-        name: data.user?.name || data.admin?.full_name,
-        email: data.user?.email || data.admin?.email,
-        role: data.user?.role || data.admin?.role,
-        department: data.user?.department || data.admin?.department || 'CCS',  // ✅ IMPORTANTE!
+        id: data.id,
+        username: data.username || data.email,
+        name: data.full_name,
+        email: data.email,
+        role: data.role,
+        department: data.department || 'CCS',
+        avatar_url: data.avatar_url || ''
       };
 
-      // I-save sa localStorage
-      localStorage.setItem('adminToken', data.token);
-      localStorage.setItem('adminUser', JSON.stringify(userData));
-      localStorage.setItem('authToken', data.token);
-      localStorage.setItem('currentUser', JSON.stringify(userData));  // ✅ Dito ginagamit ng sidebar at requests
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('currentUser', JSON.stringify(userData));
       window.dispatchEvent(new Event('auth-changed'));
 
       if (rememberMe) {
-        localStorage.setItem('rememberUsername', username);
+        localStorage.setItem('rememberAdminEmail', email.trim());
       } else {
-        localStorage.removeItem('rememberUsername');
+        localStorage.removeItem('rememberAdminEmail');
       }
 
       navigate('/admin/dashboard');
       
     } catch (err) {
+      await adminSupabase?.auth.signOut();
+      clearAdminSessionCache();
       console.error('Login error:', err);
-      setError(err.message || 'Invalid username or password');
+      setError(err.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    const remembered = localStorage.getItem('rememberUsername');
+    const flow = new URLSearchParams(window.location.search).get('flow');
+    if (flow === 'invite' || flow === 'recovery') setAuthMode('set-password');
+
+    const remembered = localStorage.getItem('rememberAdminEmail');
     if (remembered) {
-      setUsername(remembered);
+      setEmail(remembered);
       setRememberMe(true);
     }
   }, []);
@@ -106,7 +152,7 @@ const Login = () => {
         {/* Login Card */}
         <div className="rounded-2xl border border-white/30 bg-white/95 p-6 shadow-2xl shadow-black/30 sm:p-8">
           <h2 className="mb-6 text-center text-xl font-bold text-[#1B5E20]">
-            Admin Login
+            {authMode === 'set-password' ? 'Set your password' : authMode === 'request-reset' ? 'Recover password' : 'Admin Login'}
           </h2>
           
           {/* Error Message */}
@@ -118,20 +164,22 @@ const Login = () => {
               <span className="text-sm text-red-700">{error}</span>
             </div>
           )}
+
+          {notice && <p role="status" className="mb-5 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
           
           <form onSubmit={handleSubmit}>
-            {/* Username Field */}
+            {/* Email Field */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username
+                Email
               </label>
               <div className="relative">
                 <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#2E7D32] focus:border-transparent outline-none transition"
-                  placeholder="Enter admin username"
+                  placeholder="Enter admin email"
                   required
                   disabled={isLoading}
                 />
@@ -141,8 +189,7 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Password Field */}
-            <div className="mb-6">
+            {authMode === 'login' && <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Password
               </label>
@@ -177,10 +224,15 @@ const Login = () => {
                   )}
                 </button>
               </div>
-            </div>
+            </div>}
+
+            {authMode === 'set-password' && <>
+              <label className="mb-5 block text-sm font-medium text-gray-700">New password<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-[#2E7D32]" minLength={8} required /></label>
+              <label className="mb-6 block text-sm font-medium text-gray-700">Confirm password<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-[#2E7D32]" minLength={8} required /></label>
+            </>}
 
             {/* Remember Me */}
-            <div className="flex items-center mb-6">
+            {authMode === 'login' && <div className="flex items-center mb-6">
               <label className="flex items-center cursor-pointer">
                 <input
                   type="checkbox"
@@ -190,7 +242,7 @@ const Login = () => {
                 />
                 <span className="ml-2 text-sm text-gray-700">Remember me</span>
               </label>
-            </div>
+            </div>}
 
             {/* Sign In Button */}
             <button
@@ -207,10 +259,14 @@ const Login = () => {
                   Signing in...
                 </>
               ) : (
-                'Sign In'
+                authMode === 'set-password' ? 'Save password' : authMode === 'request-reset' ? 'Send recovery link' : 'Sign In'
               )}
             </button>
           </form>
+
+            <div className="mt-4 text-center">
+              {authMode === 'login' ? <button type="button" className="text-sm font-medium text-[#1B5E20] underline" onClick={() => setAuthMode('request-reset')}>Forgot password?</button> : authMode !== 'set-password' ? <button type="button" className="text-sm font-medium text-[#1B5E20] underline" onClick={() => { setAuthMode('login'); setNotice(''); setError(''); }}>Back to sign in</button> : null}
+            </div>
 
           {/* Footer */}
           <div className="mt-6 pt-6 border-t border-gray-200 text-center">

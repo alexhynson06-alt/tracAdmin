@@ -378,20 +378,6 @@ const AdminUsers = () => {
         emptyMessage="No staff members found"
       />
 
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Access Levels</h3>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-            <span className="text-sm text-gray-600"><strong className="text-red-700">Registrar (Super Admin)</strong> - Full access, can add/edit/delete staff accounts</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-            <span className="text-sm text-gray-600"><strong className="text-blue-700">Admin Staff</strong> - Can process ALL document requests (no department restrictions)</span>
-          </div>
-        </div>
-      </div>
-
       {/* Add User Modal */}
       <Modal
         isOpen={showAddModal}

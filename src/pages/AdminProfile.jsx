@@ -21,8 +21,7 @@ export default function AdminProfile() {
 
   const syncCache = (admin) => {
     const current = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    const user = current.user || current;
-    localStorage.setItem('currentUser', JSON.stringify({ ...current, user: { ...user, ...admin, name: admin.full_name } }));
+    localStorage.setItem('currentUser', JSON.stringify({ ...current, ...admin, name: admin.full_name }));
     window.dispatchEvent(new Event('auth-changed'));
   };
 
@@ -46,7 +45,7 @@ export default function AdminProfile() {
     event.preventDefault();
     setSaving(true);
     try {
-      const data = await adminProfileAPI.update(form);
+      const data = await adminProfileAPI.update({ full_name: form.full_name });
       setProfile(data.admin);
       syncCache(data.admin);
       showMessage('success', 'Profile updated successfully');
@@ -133,7 +132,7 @@ export default function AdminProfile() {
         <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900"><FaUser className="text-[#1B5E20]" /> Personal information</h2>
         <form onSubmit={handleSave} className="mt-5 grid gap-5 md:grid-cols-2">
           <label className="text-sm font-medium text-gray-700">Full name<input disabled={!canEdit} value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-[#1B5E20] disabled:bg-gray-50" required /></label>
-          <label className="text-sm font-medium text-gray-700">Email<input disabled={!canEdit} type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-[#1B5E20] disabled:bg-gray-50" required /></label>
+          <label className="text-sm font-medium text-gray-700">Email<input disabled type="email" value={form.email} className="mt-2 w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 outline-none" /></label>
           {canEdit && <div className="md:col-span-2"><button type="submit" disabled={saving} className="flex items-center gap-2 rounded-lg bg-[#1B5E20] px-5 py-3 font-semibold text-white hover:bg-[#2E7D32] disabled:opacity-60">{saving ? <FaSpinner className="animate-spin" /> : <FaSave />}{saving ? 'Saving...' : 'Save changes'}</button></div>}
         </form>
       </section>

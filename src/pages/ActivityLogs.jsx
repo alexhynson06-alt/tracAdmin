@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FaCheckCircle, 
   FaSpinner, 
@@ -21,6 +21,61 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const SEMESTER_KEYS = [
+  { value: 'first', label: 'First Semester' },
+  { value: 'second', label: 'Second Semester' },
+  { value: 'summer', label: 'Summer' }
+];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => CURRENT_YEAR - index);
+const DEFAULT_ACTIVITY_CALENDAR = {
+  schoolYearStartMonth: 8,
+  semesters: {
+    first: { startMonth: 8, endMonth: 12 },
+    second: { startMonth: 1, endMonth: 5 },
+    summer: { startMonth: 6, endMonth: 7 }
+  }
+};
+const monthRangeLabel = (range) => {
+  if (!range) return '';
+  return `${MONTH_NAMES[range.startMonth - 1].slice(0, 3)}-${MONTH_NAMES[range.endMonth - 1].slice(0, 3)}`;
+};
+const getCurrentSchoolYearStart = (calendar) => (
+  Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', year: 'numeric' }).format(new Date()))
+    - (Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', month: 'numeric' }).format(new Date())) < calendar.schoolYearStartMonth ? 1 : 0)
+);
+
+const buildActivityLogParams = ({ page, limit, filters }) => {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const values = {
+    admin_id: filters.admin,
+    action: filters.action,
+    period_type: filters.yearType,
+    year: filters.year,
+    semester: filters.semester,
+    month: filters.month,
+    date: filters.date,
+    start_date: filters.startDate,
+    end_date: filters.endDate,
+    search: filters.search.trim()
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== '' && value !== null && value !== undefined) params.set(key, value);
+  });
+  return params;
+};
+
+const readJsonResponse = async (response) => {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Request failed (${response.status})`;
+    const detail = body.error && body.error !== message ? ` Details: ${body.error}` : '';
+    throw new Error(`${message}${detail} (HTTP ${response.status})`);
+  }
+  return body;
+};
+
 export default function ActivityLogs() {
   const [logs, setLogs] = useState([]);
   const [admins, setAdmins] = useState([]);
@@ -39,68 +94,117 @@ export default function ActivityLogs() {
   
   const [filterAdmin, setFilterAdmin] = useState('');
   const [filterAction, setFilterAction] = useState('');
+  const [filterSemester, setFilterSemester] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterYearType, setFilterYearType] = useState('calendar');
+  const [filterMonth, setFilterMonth] = useState('');
   const [filterDate, setFilterDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [activityCalendar, setActivityCalendar] = useState(DEFAULT_ACTIVITY_CALENDAR);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isSuperAdmin = currentUser.role === 'super_admin';
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL;
+  const periodLabel = [
+    (filterYear || filterSemester || filterMonth) && (filterYearType === 'school'
+      ? `${filterYear || getCurrentSchoolYearStart(activityCalendar)}-${Number(filterYear || getCurrentSchoolYearStart(activityCalendar)) + 1} school year`
+      : `${filterYear || CURRENT_YEAR} calendar year`),
+    filterSemester && `${SEMESTER_KEYS.find(item => item.value === filterSemester)?.label} (${monthRangeLabel(activityCalendar.semesters[filterSemester])})`,
+    filterMonth && MONTH_NAMES[Number(filterMonth) - 1],
+    filterDate && new Date(`${filterDate}T00:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    (filterStartDate || filterEndDate) && `${filterStartDate || 'Start'} to ${filterEndDate || 'Present'}`
+  ].filter(Boolean).join(' · ');
 
-  const fetchActivityLogs = useCallback(async () => {
+  const API_BASE_URL = import.meta.env.VITE_API_URL;
+  useEffect(() => {
+    let current = true;
+    const controller = new AbortController();
+    const delay = searchTerm ? 350 : 0;
     setLoading(true);
     setError(null);
-    
-    try {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
-        setError('Not authenticated');
-        setLoading(false);
-        return;
+
+    const timeout = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) throw new Error('Not authenticated. Please sign in again.');
+        if (!API_BASE_URL) throw new Error('Activity Logs API URL is not configured.');
+
+        const filters = {
+          admin: filterAdmin,
+          action: filterAction,
+          yearType: filterYearType,
+          year: filterYear,
+          semester: filterSemester,
+          month: filterMonth,
+          date: filterDate,
+          startDate: filterStartDate,
+          endDate: filterEndDate,
+          search: searchTerm
+        };
+        const params = buildActivityLogParams({ page: pagination.page, limit: pagination.limit, filters });
+        const response = await fetch(`${API_BASE_URL}/activity-logs?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal
+        });
+        const data = await readJsonResponse(response);
+        if (!current) return;
+        setLogs(data.logs || []);
+        setAdmins(data.admins || []);
+        setSummary(data.summary || { total: 0, byAction: { approved: 0, processing: 0, ready: 0, claimed: 0, rejected: 0 } });
+        setActivityCalendar(data.activity_calendar || DEFAULT_ACTIVITY_CALENDAR);
+        setPagination(prev => ({ ...prev, total: data.pagination?.total || 0, pages: data.pagination?.pages || 0 }));
+      } catch (requestError) {
+        if (!current || requestError.name === 'AbortError') return;
+        const fetchFailure = requestError instanceof TypeError;
+        setError(fetchFailure
+          ? `Unable to reach the Activity Logs API. Check the API URL, backend availability, and CORS configuration. ${requestError.message}`
+          : requestError.message);
+      } finally {
+        if (current) setLoading(false);
       }
+    }, delay);
 
-      const params = new URLSearchParams({
-        page: pagination.page,
-        limit: pagination.limit,
-        ...(filterAdmin && { admin_id: filterAdmin }),
-        ...(filterAction && { action: filterAction }),
-        ...(filterDate && { start_date: filterDate }),
-        ...(searchTerm && { search: searchTerm })
-      });
-
-      const response = await fetch(`${API_BASE_URL}/activity-logs?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to fetch');
-
-      setLogs(data.logs || []);
-      setAdmins(data.admins || []);
-      setSummary(data.summary || { total: 0, byAction: { approved: 0, processing: 0, ready: 0, claimed: 0, rejected: 0 } });
-      setPagination(data.pagination || pagination);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [pagination.page, pagination.limit, filterAdmin, filterAction, filterDate, searchTerm]);
+    return () => {
+      current = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [API_BASE_URL, filterAdmin, filterAction, filterYearType, filterYear, filterSemester, filterMonth, filterDate, filterStartDate, filterEndDate, searchTerm, pagination.page, pagination.limit, refreshKey]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (pagination.page === 1) fetchActivityLogs();
-      else setPagination(prev => ({ ...prev, page: 1 }));
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+    setPagination(prev => (prev.page === 1 ? prev : { ...prev, page: 1 }));
+  }, [filterAdmin, filterAction, filterYearType, filterYear, filterSemester, filterMonth, filterDate, filterStartDate, filterEndDate, searchTerm]);
 
-  useEffect(() => {
-    fetchActivityLogs();
-  }, [pagination.page, pagination.limit, filterAdmin, filterAction, filterDate, fetchActivityLogs]);
+  const fetchExportLogs = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) throw new Error('Not authenticated. Please sign in again.');
+    if (!API_BASE_URL) throw new Error('Activity Logs API URL is not configured.');
+    const filters = {
+      admin: filterAdmin,
+      action: filterAction,
+      yearType: filterYearType,
+      year: filterYear,
+      semester: filterSemester,
+      month: filterMonth,
+      date: filterDate,
+      startDate: filterStartDate,
+      endDate: filterEndDate,
+      search: searchTerm
+    };
+    const params = buildActivityLogParams({ page: 1, limit: 10000, filters });
+    const response = await fetch(`${API_BASE_URL}/activity-logs?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readJsonResponse(response);
+    return data.logs || [];
+  };
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.pages) {
@@ -114,21 +218,9 @@ export default function ActivityLogs() {
 
   const exportToCSV = async () => {
     setIsExporting(true);
+    setError(null);
     try {
-      const token = localStorage.getItem('authToken');
-      const params = new URLSearchParams({
-        limit: 10000,
-        ...(filterAdmin && { admin_id: filterAdmin }),
-        ...(filterAction && { action: filterAction }),
-        ...(filterDate && { start_date: filterDate }),
-        ...(searchTerm && { search: searchTerm })
-      });
-
-      const response = await fetch(`${API_BASE_URL}/activity-logs?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      const allLogs = data.logs || [];
+      const allLogs = await fetchExportLogs();
 
       const headers = ['Date & Time', 'Admin', 'Action', 'Tracking Code', 'Document Type', 'From', 'To', 'Reason'];
       const rows = allLogs.map(log => [
@@ -154,7 +246,7 @@ export default function ActivityLogs() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Failed to export CSV');
+      setError(`CSV export failed: ${err.message}`);
     } finally {
       setIsExporting(false);
       setShowExportMenu(false);
@@ -163,21 +255,9 @@ export default function ActivityLogs() {
 
   const exportToPDF = async () => {
     setIsExporting(true);
+    setError(null);
     try {
-      const token = localStorage.getItem('authToken');
-      const params = new URLSearchParams({
-        limit: 10000,
-        ...(filterAdmin && { admin_id: filterAdmin }),
-        ...(filterAction && { action: filterAction }),
-        ...(filterDate && { start_date: filterDate }),
-        ...(searchTerm && { search: searchTerm })
-      });
-
-      const response = await fetch(`${API_BASE_URL}/activity-logs?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      const allLogs = data.logs || [];
+      const allLogs = await fetchExportLogs();
 
       const doc = new jsPDF('landscape');
       doc.setFontSize(16);
@@ -208,7 +288,7 @@ export default function ActivityLogs() {
 
       doc.save(`activity_logs_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
-      alert('Failed to export PDF');
+      setError(`PDF export failed: ${err.message}`);
     } finally {
       setIsExporting(false);
       setShowExportMenu(false);
@@ -266,7 +346,7 @@ export default function ActivityLogs() {
               <p className="text-xs text-gray-500 mt-0.5">Track all administrative actions</p>
             </div>
           </div>
-          <button onClick={fetchActivityLogs} className="p-2 text-gray-400 hover:text-[#1B5E20] rounded-lg hover:bg-[#F1F8E9] transition">
+          <button onClick={() => setRefreshKey(value => value + 1)} aria-label="Refresh activity logs" className="p-2 text-gray-400 hover:text-[#1B5E20] rounded-lg hover:bg-[#F1F8E9] transition">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -295,20 +375,97 @@ export default function ActivityLogs() {
 
         {/* ========== FILTERS SECTION ========== */}
         <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
-              <div className="relative">
-                <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
-                <input
-                  type="text"
-                  placeholder="Tracking code, admin..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#1B5E20] focus:border-[#1B5E20] outline-none"
-                />
-              </div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Search & period</label>
+          <div className="flex flex-col gap-2 rounded-xl border border-gray-200 p-2 focus-within:border-[#1B5E20] focus-within:ring-1 focus-within:ring-[#1B5E20] lg:flex-row lg:items-center">
+            <div className="relative min-w-0 flex-1">
+              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+              <input
+                type="text"
+                placeholder="Search tracking code, student, ID number, or admin..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-lg py-2 pl-8 pr-3 text-sm outline-none"
+              />
             </div>
+            <div className="flex flex-wrap items-center gap-2 lg:border-l lg:border-gray-200 lg:pl-2">
+              <select
+                aria-label="Semester"
+                value={filterSemester}
+                onChange={(e) => setFilterSemester(e.target.value)}
+                className="rounded-lg border border-gray-200 px-2 py-2 text-sm outline-none focus:border-[#1B5E20]"
+              >
+                <option value="">Semester</option>
+                {SEMESTER_KEYS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label} ({monthRangeLabel(activityCalendar.semesters[value])})</option>
+                ))}
+              </select>
+              <select
+                aria-label="Year type"
+                value={filterYearType}
+                onChange={(e) => setFilterYearType(e.target.value)}
+                className="rounded-lg border border-gray-200 px-2 py-2 text-sm outline-none focus:border-[#1B5E20]"
+              >
+                <option value="calendar">Calendar year</option>
+                <option value="school">School year</option>
+              </select>
+              <select
+                aria-label="Year"
+                value={filterYear}
+                onChange={(e) => setFilterYear(e.target.value)}
+                className="rounded-lg border border-gray-200 px-2 py-2 text-sm outline-none focus:border-[#1B5E20]"
+              >
+                <option value="">Year</option>
+                {YEAR_OPTIONS.map(optionYear => (
+                  <option key={optionYear} value={optionYear}>
+                    {filterYearType === 'school' ? `${optionYear}-${optionYear + 1}` : optionYear}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Month"
+                value={filterMonth}
+                onChange={(e) => { setFilterMonth(e.target.value); if (e.target.value) setFilterDate(''); }}
+                className="rounded-lg border border-gray-200 px-2 py-2 text-sm outline-none focus:border-[#1B5E20]"
+              >
+                <option value="">Month</option>
+                {MONTH_NAMES.map((name, index) => <option key={name} value={String(index + 1).padStart(2, '0')}>{name}</option>)}
+              </select>
+              <input
+                type="date"
+                aria-label="Specific date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="rounded-lg border border-gray-200 px-2 py-2 text-sm outline-none focus:border-[#1B5E20]"
+              />
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-medium text-gray-500">
+              Start date
+              <input
+                type="date"
+                aria-label="Start date"
+                value={filterStartDate}
+                max={filterEndDate || undefined}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-normal text-gray-800 outline-none focus:border-[#1B5E20]"
+              />
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              End date
+              <input
+                type="date"
+                aria-label="End date"
+                value={filterEndDate}
+                min={filterStartDate || undefined}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-normal text-gray-800 outline-none focus:border-[#1B5E20]"
+              />
+            </label>
+          </div>
+          {periodLabel && <p className="mt-2 text-xs text-gray-500">Showing: <span className="font-medium text-[#1B5E20]">{periodLabel}</span></p>}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Admin</label>
               <select
@@ -336,20 +493,23 @@ export default function ActivityLogs() {
                 <option value="rejected">Rejected</option>
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-              <input
-                type="date"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#1B5E20] outline-none"
-              />
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-gray-100">
             <button
-              onClick={() => { setFilterAdmin(''); setFilterAction(''); setFilterDate(''); setSearchTerm(''); setPagination(prev => ({ ...prev, page: 1 })); }}
+              onClick={() => {
+                setFilterAdmin('');
+                setFilterAction('');
+                setFilterSemester('');
+                setFilterYear('');
+                setFilterYearType('calendar');
+                setFilterMonth('');
+                setFilterDate('');
+                setFilterStartDate('');
+                setFilterEndDate('');
+                setSearchTerm('');
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
               className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200"
             >
               Clear Filters

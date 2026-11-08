@@ -1,5 +1,6 @@
 // API Service for MSU-TCTO Registrar System
 import axios from 'axios';
+import { adminSupabase, clearAdminSessionCache } from './adminAuth';
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_URL;
@@ -36,10 +37,8 @@ api.interceptors.response.use(
     if (error.response) {
       switch (error.response.status) {
         case 401:
-          // Unauthorized - redirect to login
-          localStorage.removeItem('authToken'); // ✅ CHANGED: 'admin_token' to 'authToken'
-          localStorage.removeItem('currentUser');
-          localStorage.removeItem('authResponse');
+          void adminSupabase?.auth.signOut();
+          clearAdminSessionCache();
           window.location.href = '/login';
           break;
         case 403:
@@ -149,7 +148,6 @@ export const emailLogsAPI = {
 export const statusAPI = {
   updateStatus: (id, status, reason) => api.put(`/requests/${id}/status`, { status, reason }),
   bulkUpdateStatus: (requestIds, status, reason) => api.post('/requests/bulk-status', { requestIds, status, reason }),
-  getAvailableTransitions: (id) => api.get(`/requests/${id}/transitions`),
   getStatusHistory: (id) => api.get(`/requests/${id}/history`),
 };
 
@@ -250,9 +248,8 @@ export const apiUtils = {
   
   // Clear auth token
   clearAuthToken: () => {
-    localStorage.removeItem('authToken'); // ✅ CHANGED: 'admin_token' to 'authToken'
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('authResponse');
+    void adminSupabase?.auth.signOut();
+    clearAdminSessionCache();
     delete api.defaults.headers.common['Authorization'];
   },
   

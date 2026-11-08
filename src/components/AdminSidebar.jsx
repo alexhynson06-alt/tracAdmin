@@ -9,6 +9,7 @@ import {
   FaSignOutAlt
   ,FaUserCircle
 } from 'react-icons/fa';
+import { adminSupabase, clearAdminSessionCache } from '../services/adminAuth';
 
 const AdminSidebar = ({ isOpen, closeSidebar, toggleSidebar }) => {
   const navigate = useNavigate();
@@ -137,11 +138,9 @@ const AdminSidebar = ({ isOpen, closeSidebar, toggleSidebar }) => {
     ? [...baseNavItems, adminUsersItem]
     : baseNavItems;
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('authResponse');
-    window.dispatchEvent(new Event('auth-changed'));
+  const handleLogout = async () => {
+    await adminSupabase?.auth.signOut();
+    clearAdminSessionCache();
     navigate('/login');
   };
 

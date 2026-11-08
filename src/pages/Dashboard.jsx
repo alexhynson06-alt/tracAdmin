@@ -250,7 +250,7 @@ const Dashboard = () => {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-gray-800">Activity Overview</h2>
-              <p className="mt-0.5 text-xs text-gray-500">New requests grouped by submission date</p>
+            
             </div>
             <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1" role="group" aria-label="Activity time range">
               <button onClick={() => setActivityType('weekly')} aria-pressed={activityType === 'weekly'} className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${activityType === 'weekly' ? 'bg-[#1B5E20] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>Weekly</button>
@@ -303,37 +303,105 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* ========== SECONDARY INSIGHTS ========== */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="bg-gray-800 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3"><FaUsers className="text-white/70 text-sm" /><h3 className="font-semibold text-white text-sm">User Distribution</h3></div>
-            <div className="space-y-3">
-              {dashboardData.userTypeDistribution.length > 0 ? (
-                dashboardData.userTypeDistribution.map((item, idx) => {
-                  const Icon = item.type === 'Student' ? FaUserGraduate : FaUserTie;
-                  return (
-                    <div key={idx} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2"><Icon className="text-white/50 text-sm" /><span className="text-white text-sm">{item.type}</span></div>
-                      <div className="flex items-center gap-3"><span className="text-white font-semibold">{item.count}</span><span className="text-white/40 text-xs">{item.percentage}%</span></div>
-                    </div>
-                  );
-                })
-              ) : <p className="text-white/40 text-sm text-center py-4">No data</p>}
-            </div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-3"><FaIdCard className="text-[#1B5E20] text-sm" /><h3 className="font-semibold text-gray-800 text-sm">Quick Insights</h3></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-gray-50 rounded-lg p-3"><p className="text-xs text-gray-500">Students</p><p className="text-xl font-bold text-gray-800">{dashboardData.userTypeDistribution.find(u => u.type === 'Student')?.count || 0}</p></div>
-              <div className="bg-gray-50 rounded-lg p-3"><p className="text-xs text-gray-500">Alumni</p><p className="text-xl font-bold text-gray-800">{dashboardData.userTypeDistribution.find(u => u.type === 'Alumni')?.count || 0}</p></div>
-              <div className="bg-gray-50 rounded-lg p-3"><p className="text-xs text-gray-500">Document Types</p><p className="text-xl font-bold text-gray-800">{dashboardData.documentDistribution.filter(d => d.count > 0).length}</p></div>
-              <div className="bg-amber-50 rounded-lg p-3 cursor-pointer hover:bg-amber-100 transition" onClick={() => handleStatCardClick('pending')}>
-                <p className="text-xs text-amber-600">Pending Action</p>
-                <p className="text-xl font-bold text-amber-700">{dashboardData.pending}</p>
+        
+{/* ========== SECONDARY INSIGHTS ========== */}
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+  {/* User Distribution */}
+  <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="flex items-center gap-2 mb-3">
+      <FaUsers className="text-black text-sm" />
+      <h3 className="font-semibold text-black text-sm">
+        User Distribution
+      </h3>
+    </div>
+
+    <div className="space-y-3">
+      {dashboardData.userTypeDistribution.length > 0 ? (
+        dashboardData.userTypeDistribution.map((item, idx) => {
+          const Icon =
+            item.type === 'Student' ? FaUserGraduate : FaUserTie;
+
+          return (
+            <div
+              key={idx}
+              className="flex items-center justify-between text-black"
+            >
+              <div className="flex items-center gap-2">
+                <Icon className="text-black text-sm" />
+                <span className="text-black text-sm">
+                  {item.type}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3 text-black">
+                <span className="font-semibold">
+                  {item.count}
+                </span>
+                <span className="text-black text-xs">
+                  {item.percentage}%
+                </span>
               </div>
             </div>
-          </div>
-        </div>
+          );
+        })
+      ) : (
+        <p className="text-black text-sm text-center py-4">
+          No data
+        </p>
+      )}
+    </div>
+  </div>
+
+  {/* Quick Insights — unchanged */}
+  <div className="bg-white rounded-xl border border-gray-100 p-4">
+    <div className="flex items-center gap-2 mb-3">
+      <FaIdCard className="text-[#1B5E20] text-sm" />
+      <h3 className="font-semibold text-gray-800 text-sm">
+        Quick Insights
+      </h3>
+    </div>
+
+    <div className="grid grid-cols-2 gap-3">
+      <div className="bg-gray-50 rounded-lg p-3">
+        <p className="text-xs text-gray-500">Students</p>
+        <p className="text-xl font-bold text-gray-800">
+          {dashboardData.userTypeDistribution.find(
+            u => u.type === 'Student'
+          )?.count || 0}
+        </p>
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-3">
+        <p className="text-xs text-gray-500">Alumni</p>
+        <p className="text-xl font-bold text-gray-800">
+          {dashboardData.userTypeDistribution.find(
+            u => u.type === 'Alumni'
+          )?.count || 0}
+        </p>
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-3">
+        <p className="text-xs text-gray-500">Document Types</p>
+        <p className="text-xl font-bold text-gray-800">
+          {dashboardData.documentDistribution.filter(
+            d => d.count > 0
+          ).length}
+        </p>
+      </div>
+
+      <div
+        className="bg-amber-50 rounded-lg p-3 cursor-pointer hover:bg-amber-100 transition"
+        onClick={() => handleStatCardClick('pending')}
+      >
+        <p className="text-xs text-amber-600">Pending Action</p>
+        <p className="text-xl font-bold text-amber-700">
+          {dashboardData.pending}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
 
         {/* ========== WARNING BANNER ========== */}
        
