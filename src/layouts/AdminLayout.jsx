@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import AdminSidebar from '../components/AdminSidebar';
+import AdminNotifications from '../components/AdminNotifications';
 
 const AdminLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -17,18 +18,20 @@ const AdminLayout = () => {
       />
 
       <div className="flex min-h-screen min-w-0 flex-col lg:pl-72">
-        <div className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 lg:hidden">
-          <div className="px-3 py-3 sm:px-4">
+        <div className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+          <div className="flex min-h-16 items-center justify-between px-3 sm:px-5 lg:justify-end lg:px-8">
             <button
+              type="button"
               onClick={toggleSidebar}
               aria-label={isSidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
               aria-expanded={isSidebarOpen}
-              className="trac-button-outline flex min-h-11 min-w-11 items-center justify-center rounded-xl p-2 transition"
+              className="trac-button-outline flex min-h-11 min-w-11 items-center justify-center rounded-xl p-2 transition lg:hidden"
             >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
+            <AdminNotifications />
           </div>
         </div>
 

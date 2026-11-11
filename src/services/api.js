@@ -93,6 +93,12 @@ export const adminProfileAPI = {
   deleteAvatar: () => api.delete('/admin/me/avatar'),
 };
 
+export const adminNotificationsAPI = {
+  getMine: () => api.get('/admin/notifications'),
+  markRead: (id) => api.patch(`/admin/notifications/${id}/read`),
+  markAllRead: () => api.patch('/admin/notifications/read-all'),
+};
+
 // Dashboard API - ✅ UPDATED: Points to correct backend endpoint
 export const dashboardAPI = {
   getStats: () => api.get('/requests/dashboard-stats'), // ✅ CHANGED: '/admin/dashboard/stats' to '/requests/dashboard-stats'

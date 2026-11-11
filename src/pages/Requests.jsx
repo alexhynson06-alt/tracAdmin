@@ -290,6 +290,14 @@ const Requests = () => {
     }
   }, [pagination.page, pagination.limit, API_BASE_URL, fetchRequests]);
 
+  const refreshRequests = () => {
+    if (isSearching && searchTerm.trim()) {
+      searchRequests(searchTerm);
+      return;
+    }
+    fetchRequests();
+  };
+
   useEffect(() => {
     if (!isSearching) fetchRequests();
   }, [filter, pagination.page, pagination.limit, fetchRequests, isSearching]);
@@ -395,12 +403,15 @@ const Requests = () => {
             <h1 className="text-2xl font-bold bg-gradient-to-r from-[#1B5E20] to-[#F9A825] bg-clip-text text-transparent">Document Requests</h1>
             <p className="text-sm text-gray-500 mt-0.5">Manage and track all student document requests</p>
           </div>
-     <button
-  onClick={fetchRequests}
-  className="trac-button rounded-xl px-2.5 py-2 text-sm font-medium sm:px-4"
->
-  Refresh
-</button>
+          <button
+            type="button"
+            onClick={refreshRequests}
+            disabled={loading}
+            className="trac-button inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium disabled:cursor-not-allowed sm:px-4"
+          >
+            {loading && <FaSpinner className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         {/* Now Serving & Queue Info */}
